@@ -1,0 +1,39 @@
+#!/bin/bash
+# get WAT from SQS and output URLs with scripts matching a regex pattern
+# usage: matches <queue url> <s3 base url> <regex pattern>
+
+# get WAT
+msg=`aws sqs receive-message --queue-url $1`
+
+# only continue of message received (ie work to do)
+if ! [ -z "$msg" ]
+then
+    # parse
+    body=`echo $msg | jq --raw-output '.Messages[0].Body'`
+    handle=`echo $msg | jq --raw-output '.Messages[0].ReceiptHandle'`
+    md5=`echo $msg | jq --raw-output '.Messages[0].MD5OfBody'`
+
+    # download with 180 second cap before timeout
+    timeout 180 curl -s -o $md5".wat.gz" $2$body
+
+    if [ $? != "0" ]
+    then
+        # download timed out or broke, remove before re-trying
+        echo "timed out :O"
+        rm -f $md5".wat.gz"
+    else
+        # download success! extract
+        gunzip $md5".wat.gz"
+
+        # match
+        grep -B7 '"Scripts":.*"url":"'$3'"' $md5".wat" |
+        awk '/^WARC-Target-URI/ {print $2}' >> results
+
+        # done, delete file and job from queue
+        rm $md5".wat"
+        aws sqs delete-message --queue-url $1 --receipt-handle $handle
+    fi
+
+    # repeat
+    ./matches $1 $2 $3 &
+fi

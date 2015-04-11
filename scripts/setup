@@ -1,0 +1,30 @@
+#!/bin/bash
+# configure machine and launch matches' threads
+# usage: setup <aws access key id> <aws secret access key> <aws region> <queue url> <s3 base url> <regex pattern> <threads> <s3 results bucket name>
+
+# install programs and make executable
+mkdir ~/bin
+PATH=$PATH:~/bin
+
+curl -s -o ~/bin/jq https://stedolan.github.io/jq/download/linux64/jq
+chmod +x ~/bin/jq
+
+# set environment variables
+export AWS_ACCESS_KEY_ID=$1
+export AWS_SECRET_ACCESS_KEY=$2
+export AWS_DEFAULT_REGION=$3
+
+# launch matches
+for ((i=0; i < $7; i++))
+do
+    ./matches $4 $5 $6 &
+done
+
+# wait until done
+while [ `ps aux | grep "[m]atches" | wc -l` != "0" ]
+do
+    sleep 10
+done
+
+# upload results
+aws s3 mv results s3://$8/results-`uuidgen`
